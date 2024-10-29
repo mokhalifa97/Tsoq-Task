@@ -4,8 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Tenant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
-use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 use Illuminate\Support\Facades\DB;
 
@@ -13,20 +11,12 @@ class ProductTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * Set up the tenant environment for each test.
-     */
     protected function setUp(): void
     {
         parent::setUp();
-
+        app()->environment(['testing']);
         if (app()->environment('testing')) {
-            Config::set('database.connections.tenant.database', ':memory:'); // Set tenant database for testing
-            DB::setDefaultConnection('tenant');
-            $this->artisan('migrate', [
-                '--database' => 'tenant',
-                '--path' => 'database/migrations/tenants',
-            ]);
+            $this->artisan('migrate', ['--database' => 'testing']);
         }
     }
 
