@@ -32,5 +32,6 @@ The tenant databases are created dynamically and associated with a unique identi
 - cp.env.example.env
 - php artisan tenant:setup {TenantName} {DatabaseName}
 - php artisan migrate
+- run product seeder 
 - php artisan serve
 - use the postman collection to test the API endpoints.
