@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Middleware;
 
 use App\Models\Tenant;
@@ -15,22 +16,32 @@ class TenantDatabaseSwitcher
     {
         $tenantId = $request->header('X-Tenant-ID');
         if (!$tenantId) {
-            return response()->json(['error' => 'Tenant ID is required in the X-Tenant-ID header.'], 400);
+            return response()->json(['error' => 'Tenant ID not provided'], 400);
         }
 
         $tenant = Tenant::find($tenantId);
-        if ($tenant) {
-            if (App::environment('testing')) {
-                Config::set('database.connections.tenant.database', ':memory:');
-                DB::setDefaultConnection('testing'); 
-            }else{
-                Config::set('database.connections.tenant.database', $tenant->database_name);
-                DB::setDefaultConnection('tenant');
-            }
-        } else {
-            return response()->json(['error' => 'Tenant not found.'], 404);
+        if (!$tenant) {
+            return response()->json(['error' => 'Invalid Tenant ID'], 404);
         }
+
+        // Dynamically set the database connection
+        Config::set('database.connections.tenant', [
+            'driver' => 'mysql',
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '3306'),
+            'database' => $tenant->database_name,
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+            'engine' => null,
+        ]);
+
+        // Set the default connection to tenant
+        DB::setDefaultConnection('tenant');
+
         return $next($request);
     }
-
 }
