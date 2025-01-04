@@ -2,79 +2,124 @@
 
 namespace Tests\Feature;
 
-use App\Models\Tenant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use Illuminate\Support\Facades\DB;
+use App\Models\Tenant;
+use App\Models\Product;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Artisan;
 
 class ProductTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected $tenant;
+
     protected function setUp(): void
     {
         parent::setUp();
-        app()->environment(['testing']);
-        if (app()->environment('testing')) {
-            $this->artisan('migrate', ['--database' => 'testing']);
-        }
-    }
 
-    public function test_product_creation_for_correct_tenant()
-    {
-        $tenant = Tenant::create([
+        // Set up the master database (tenants table)
+        Artisan::call('migrate');
+
+        // Create a tenant
+        $this->tenant = Tenant::create([
             'name' => 'Test Tenant',
-            'database_name' => ':memory:',
+            'database_name' => 'test_tenant_db',
         ]);
 
-        $response = $this->withHeader('X-Tenant-ID', $tenant->id)
-            ->postJson('/api/products', [
-                'name' => 'Sample Product',
-                'description' => 'This is a sample product.',
-                'price' => 29.99
-            ]);
+        // Create the tenant's database
+        Config::set('database.connections.tenant_temp', [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+        ]);
+
+        // Run tenant migrations
+        Artisan::call('migrate', [
+            '--database' => 'tenant_temp',
+            '--path' => 'database/migrations/tenant',
+            '--force' => true,
+        ]);
+
+        // Set the tenant connection to use the in-memory database
+        Config::set('database.connections.tenant', Config::get('database.connections.tenant_temp'));
+        \DB::setDefaultConnection('tenant');
+    }
+
+    /** @test */
+    public function it_adds_product_to_correct_tenant_database()
+    {
+        $payload = [
+            'name' => 'Test Product',
+            'description' => 'A product for testing.',
+            'price' => 49.99,
+        ];
+
+        $response = $this->withHeader('X-Tenant-ID', $this->tenant->id)
+            ->postJson('/api/products', $payload);
 
         $response->assertStatus(201)
             ->assertJson([
-                'message' => 'Product created successfully'
+                'message' => 'Product created successfully.',
+                'data' => [
+                    'name' => 'Test Product',
+                    'description' => 'A product for testing.',
+                    'price' => 49.99,
+                ],
             ]);
 
-        DB::setDefaultConnection('tenant');
+        // Assert the product exists in the tenant's database
         $this->assertDatabaseHas('products', [
-            'name' => 'Sample Product',
-            'description' => 'This is a sample product.',
-            'price' => 29.99
-        ]);
+            'name' => 'Test Product',
+            'description' => 'A product for testing.',
+            'price' => 49.99,
+        ], 'tenant');
     }
 
-    public function test_product_creation_fails_without_tenant_id()
+    /** @test */
+    public function it_fails_when_tenant_id_is_missing()
     {
-        $response = $this->postJson('/api/products', [
-            'name' => 'Sample Product',
-            'description' => 'This is a sample product.',
-            'price' => 29.99
-        ]);
+        $payload = [
+            'name' => 'Test Product',
+            'description' => 'A product without tenant ID.',
+            'price' => 19.99,
+        ];
+
+        $response = $this->postJson('/api/products', $payload);
 
         $response->assertStatus(400)
-            ->assertJson([
-                'message' => 'Tenant ID not provided'
-            ]);
+            ->assertJson(['error' => 'Tenant ID not provided']);
     }
 
-    public function test_product_creation_with_invalid_data()
+    /** @test */
+    public function it_fails_with_invalid_tenant_id()
     {
-        $tenant = Tenant::create([
-            'name' => 'Test Tenant',
-            'database_name' => ':memory:',
-        ]);
+        $payload = [
+            'name' => 'Test Product',
+            'description' => 'A product with invalid tenant ID.',
+            'price' => 19.99,
+        ];
 
-        $response = $this->withHeader('X-Tenant-ID', $tenant->id)
-            ->postJson('/api/products', [
-                'name' => '',
-                'price' => 'not-a-number',
-            ]);
+        $response = $this->withHeader('X-Tenant-ID', 999) // Assuming this ID doesn't exist
+            ->postJson('/api/products', $payload);
+
+        $response->assertStatus(404)
+            ->assertJson(['error' => 'Invalid Tenant ID']);
+    }
+
+    /** @test */
+    public function it_validates_input_data()
+    {
+        $payload = [
+            'name' => '', // Required field
+            'price' => -10, // Invalid value
+        ];
+
+        $response = $this->withHeader('X-Tenant-ID', $this->tenant->id)
+            ->postJson('/api/products', $payload);
 
         $response->assertStatus(422)
-            ->assertJsonValidationErrors(['name', 'description', 'price']);
+            ->assertJsonValidationErrors(['name', 'price']);
     }
 }

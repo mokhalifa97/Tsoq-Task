@@ -15,6 +15,6 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware(['tenant.switch'])->group(function () {
+Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/products',[ProductController::class, 'store']);
 });
